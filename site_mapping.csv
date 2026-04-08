@@ -1,0 +1,4 @@
+﻿ap_name,switch,port,site
+CA-EXP-YTZ-Forescount,YTZ-CO01-EXP-9410-SW01.dhl.com,GigabitEthernet3/0/47,DHLIBPTON04
+MX-EXP-QET-HUB-WA042,MX-EXP-QET-HUB-SW011.dhl.com,GigabitEthernet1/0/20,LATO-MX-EXP-MCO-QET-01
+BR-DSC-LOZ-MTS-01-TesteAZN,BR-DSC-LOZ-MTS-P06-SW017.phx-dc.dhl.com,GigabitEthernet1/0/45,LATO-BR-DSC-LOZ-MTS-01
