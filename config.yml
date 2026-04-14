@@ -1,17 +1,17 @@
 syslog_paths:
-  - "C:/Syslog/wlc.log"
-  - "C:/Syslog/switches.log"
-  - "C:/Syslog/merged.log"
+  - "E:/SolarWinds/Logs/wlc.log"
+  - "E:/SolarWinds/Logs/switches.log"
+  - "E:/SolarWinds/Logs/merged.log"
 
 ap_switch_map: "site_mapping.csv"
 
-openai_api_key: "YOUR_OPENAI_API_KEY"
+#openai_api_key: "YOUR_OPENAI_API_KEY"
 
 time_window_minutes: 15
 
-zabbix:
-  send_to_zabbix: false
-  host: "AI-Correlation"
-  server: "127.0.0.1"
-  key: "ai.incident"
+#zabbix:
+#  send_to_zabbix: false
+#  host: "AI-Correlation"
+#  server: "127.0.0.1"
+#  key: "ai.incident"
 ``
