@@ -1,6 +1,6 @@
 syslog_paths:
-  - "E:/SolarWinds/Logs/wlc.log"
-  - "E:/SolarWinds/Logs/switches.log"
+  - "E:/SolarWinds/Logs/vWLC_PoC-AI1_20260415130741565.log"
+  - "E:/SolarWinds/Logs/Switches_20260415130333082.log"
   - "E:/SolarWinds/Logs/merged.log"
 
 ap_switch_map: "site_mapping.csv"
