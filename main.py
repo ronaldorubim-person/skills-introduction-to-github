@@ -25,11 +25,16 @@ def main():
     # -----------------------------------------------------------------
     # Load config
     # -----------------------------------------------------------------
-    with open("config.yaml", "r") as f:
+    
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
+
+    with open(CONFIG_PATH, "r") as f:
         cfg = yaml.safe_load(f)
 
+
     syslog_paths = cfg.get("syslog_paths", [])
-    minutes = cfg.get("time_window_minutes", 15)
+    minutes = cfg.get("time_window_minutes", 180)
     ap_map_file = cfg.get("ap_switch_map")
 
     # -----------------------------------------------------------------
