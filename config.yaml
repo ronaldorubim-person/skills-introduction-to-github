@@ -1,0 +1,19 @@
+syslog_paths:
+#  - "E:/SolarWinds/Logs/vWLC_PoC-AI1.log"
+#  - "E:/SolarWinds/Logs/Switches.log"
+#  - "E:/SolarWinds/Logs/merged.log"
+  - "C:/temp/syslog_ai_pkg/vWLC_PoC-AI3.log"
+  - "C:/temp/syslog_ai_pkg/Switches-AI3.log"
+
+ap_switch_map: "site_mapping.csv"
+
+#openai_api_key: "YOUR_OPENAI_API_KEY"
+
+time_window_minutes: 15
+max_lines_to_read: 5000
+
+#zabbix:
+#  send_to_zabbix: false
+#  host: "AI-Correlation"
+#  server: "127.0.0.1"
+#  key: "ai.incident"
