@@ -2,7 +2,7 @@ import yaml
 import os
 from syslog_reader import read_logs
 from correlate import load_ap_switch_map, correlate
-from ai_engine import analyze_incident
+#from ai_engine import analyze_incident
 
 
 # ---------------------------------------------------------------------

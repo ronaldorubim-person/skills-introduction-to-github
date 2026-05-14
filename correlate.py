@@ -2,15 +2,16 @@ import pandas as pd
 from datetime import timedelta
 
 # ------------------------------------------------------------
-# Priority order (higher number = higher priority)
+# Cause priority (higher = stronger root cause)
 # ------------------------------------------------------------
 CAUSE_PRIORITY = {
-    "BPDU_GUARD": 6,          # STP errdisable (highest)
-    "IF_FLAP": 5,             # Physical link down
-    "POE_ERR": 4,             # PoE electrical failure
-    "AP_CRASH": 3,            # AP reboot due to crash
-    "AP_CONFIG_FAILOVER": 2,  # AP config / IP failover
-    "CAPWAP_ERR": 1,          # WAN / control plane
+    "BPDU_GUARD": 6,
+    "IF_FLAP": 5,
+    "POE_ERR": 4,
+    "AP_CRASH": 3,
+    "AP_CONFIG_FAILOVER": 2,
+    "CAPWAP_ERR": 1,
+    "AAA_TIMEOUT": 1,
 }
 
 # ------------------------------------------------------------
@@ -25,9 +26,9 @@ def load_ap_switch_map(path):
 
 
 # ------------------------------------------------------------
-# Correlation engine with cause prioritization
+# Correlation engine
 # ------------------------------------------------------------
-def correlate(events, ap_map, window_minutes=180):
+def correlate(events, ap_map, window_minutes=10):
     incidents = []
     window = timedelta(minutes=window_minutes)
 
@@ -36,19 +37,24 @@ def correlate(events, ap_map, window_minutes=180):
         ev["etype"] = ev["etype"].upper()
         ev["raw_lc"] = ev["raw"].lower()
 
-    # Group AP_DISJOIN events by AP
-    ap_disjoins = {}
+    # --------------------------------------------------------
+    # Build AP-trigger events (AP_DISJOIN or AP_CRASH)
+    # --------------------------------------------------------
+    ap_triggers = {}
+
     for ev in events:
-#        if ev["etype"] == "AP_DISJOIN":
-         if ev["etype"] in ("AP_DISJOIN", "AP_CRASH"):
-            ap = ev["context"]["ap"].lower()
-            ap_disjoins.setdefault(ap, []).append(ev)
+        if ev["etype"] in ("AP_DISJOIN", "AP_CRASH"):
+            ap = ev["context"].get("ap", "").lower()
+            if not ap:
+                continue
+            ap_triggers.setdefault(ap, []).append(ev)
 
+    # --------------------------------------------------------
     # Process each AP
-    for ap, disjoin_events in ap_disjoins.items():
+    # --------------------------------------------------------
+    for ap, trigger_events in ap_triggers.items():
 
-        # Use first disjoin as incident start
-        disjoin_time = disjoin_events[0]["timestamp"]
+        incident_time = min(e["timestamp"] for e in trigger_events)
 
         # Lookup AP mapping
         row = ap_map[ap_map["ap_name"] == ap]
@@ -59,57 +65,69 @@ def correlate(events, ap_map, window_minutes=180):
         port = row.iloc[0]["port"]
         site = row.iloc[0].get("site", "UNKNOWN")
 
-        # Find candidate LAN/WAN events in time window
+        # ----------------------------------------------------
+        # Find candidate causal events in time window
+        # ----------------------------------------------------
         candidates = []
+
         for ev in events:
-            if abs(ev["timestamp"] - disjoin_time) <= window:
-                # IF_FLAP must match port
-                if ev["etype"] == "IF_FLAP" and port in ev["raw_lc"]:
-                    candidates.append(ev)
-                # POE_ERR must match port
-                elif ev["etype"] == "POE_ERR" and port in ev["raw_lc"]:
-                    candidates.append(ev)
-                # AP_CRASH must match port
-                elif ev["etype"] == "AP_CRASH" and port in ev["raw_lc"]:
-                    candidates.append(ev)
-                # BPDU_GUARD must match port
-                elif ev["etype"] == "BPDU_GUARD" and port in ev["raw_lc"]:
-                    candidates.append(ev)    
-                # CAPWAP_ERR is controller-wide
-                elif ev["etype"] == "CAPWAP_ERR":
-                    candidates.append(ev)
+            if abs(ev["timestamp"] - incident_time) > window:
+                continue
 
-        # Select highest-priority cause
+            if ev["etype"] == "IF_FLAP" and port in ev["raw_lc"]:
+                candidates.append(ev)
+            elif ev["etype"] == "POE_ERR" and port in ev["raw_lc"]:
+                candidates.append(ev)
+            elif ev["etype"] == "BPDU_GUARD" and port in ev["raw_lc"]:
+                candidates.append(ev)
+            elif ev["etype"] in ("AP_CRASH", "AP_CONFIG_FAILOVER"):
+                if ev["context"].get("ap", "").lower() == ap:
+                    candidates.append(ev)
+            elif ev["etype"] in ("CAPWAP_ERR", "AAA_TIMEOUT"):
+                candidates.append(ev)
+
+        # ----------------------------------------------------
+        # Determine root cause
+        # ----------------------------------------------------
         root_cause = None
-        highest_priority = 0
 
-        for ev in candidates:
-            prio = CAUSE_PRIORITY.get(ev["etype"], 0)
-            if prio > highest_priority:
-                highest_priority = prio
-                root_cause = ev
+        types = {e["etype"] for e in candidates}
 
-        # Check for AP_JOIN (recovery)
+        # Special rule: LAN beats AP crash
+        if "IF_FLAP" in types and "AP_CRASH" in types:
+            root_cause = next(e for e in candidates if e["etype"] == "IF_FLAP")
+
+        elif candidates:
+            root_cause = max(
+                candidates,
+                key=lambda e: CAUSE_PRIORITY.get(e["etype"], 0)
+            )
+
+        # ----------------------------------------------------
+        # Detect recovery (AP_JOIN)
+        # ----------------------------------------------------
         recovery = None
         for ev in events:
             if ev["etype"] == "AP_JOIN":
-                if ev["context"]["ap"].lower() == ap:
-                    if ev["timestamp"] > disjoin_time:
+                if ev["context"].get("ap", "").lower() == ap:
+                    if ev["timestamp"] > incident_time:
                         recovery = ev
                         break
 
-        # Build incident
+        # ----------------------------------------------------
+        # Build incident object
+        # ----------------------------------------------------
         incident = {
             "ap": ap,
             "site": site,
             "switch": switch,
             "port": port,
-            "disjoin_time": disjoin_time,
+            "incident_time": incident_time,
             "root_cause_type": root_cause["etype"] if root_cause else "UNKNOWN",
             "root_cause_event": root_cause,
             "recovered": True if recovery else False,
             "recovery_time": recovery["timestamp"] if recovery else None,
-            "all_disjoins": disjoin_events,
+            "trigger_events": trigger_events,
             "candidate_events": candidates,
         }
 
