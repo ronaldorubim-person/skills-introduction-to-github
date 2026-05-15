@@ -1,82 +1,98 @@
-#import openai
-
+# Optional: enable AI later
+# import openai
 
 # ---------------------------------------------------------------------
-# AI ENGINE: Converts correlated syslog events into human-readable
-# root cause analysis using an LLM (GPT-4 or later).
+# Build deterministic RCA (no AI dependency)
 # ---------------------------------------------------------------------
-def analyze_incident(incident):
-    """
-    Accepts an incident dictionary:
-    {
-      "ap": "SAO-AP-11",
-      "switch": "SAO-ACC-01",
-      "port": "Gi1/0/24",
-      "site": "SAO",
-      "ap_events": [...],
-      "lan_faults": [...]
+def build_deterministic_summary(incident):
+
+    ap = incident.get("ap")
+    sw = incident.get("switch")
+    port = incident.get("port")
+    site = incident.get("site")
+    cause = incident.get("root_cause_type")
+    event = incident.get("root_cause_event")
+
+    cause_map = {
+        "IF_FLAP": "LAN / Physical",
+        "POE_ERR": "LAN / PoE",
+        "BPDU_GUARD": "LAN / Layer2",
+        "AP_CRASH": "AP / Software",
+        "AP_CONFIG_FAILOVER": "AP / Configuration",
+        "CAPWAP_ERR": "WAN / Control",
+        "AAA_TIMEOUT": "AAA",
     }
 
-    Produces an LLM-generated summary containing:
-      - Fault domain classification
-      - Root cause explanation
-      - Device involvement
-      - User impact
-      - Recommended next actions
-    """
+    fault_domain = cause_map.get(cause, "UNKNOWN")
 
-    ap = incident["ap"]
-    sw = incident["switch"]
-    port = incident["port"]
-    site = incident.get("site", "UNKNOWN")
+    if not event:
+        root_text = "No clear root cause event identified."
+    else:
+        root_text = f"{event.get('raw', '')}"
 
-    # Combine syslog lines
-    text_block = "\n".join(
-        [e["raw"] for e in incident["ap_events"] + incident["lan_faults"]]
-    )
-
-    prompt = f"""
-You are a senior Cisco network engineer AI responsible for correlating
-WLAN (Catalyst 9800) and LAN (Cisco IOS-XE) syslog data.
-
-Analyze the following syslog messages and produce a concise operational report.
-
-Required output format:
-
+    summary = f"""
 FAULT DOMAIN:
-LAN / WLAN / WAN / AAA / RF / PoE
+{fault_domain}
 
 ROOT CAUSE SUMMARY:
-1–3 sentences explaining the root cause.
+Event '{cause}' detected. {root_text}
 
 DEVICES INVOLVED:
-List APs, switches, ports, controllers.
+AP: {ap}
+Switch: {sw}
+Port: {port}
 
 IMPACT TO USERS:
-Summarize user-facing symptoms (AP outages, roaming issues, auth failures, etc.)
+Potential wireless disruption for users connected to this AP.
 
 RECOMMENDED NEXT ACTIONS:
-Actionable steps for the NOC.
-
-----------------------------------------
-SITE: {site}
-AP: {ap}
-SWITCH: {sw}
-PORT: {port}
-
-Syslog Extract:
-{text_block}
-----------------------------------------
-
-Generate the final report below:
+Investigate switch port {port} on {sw}, verify cabling, PoE status, and AP health.
 """
 
-    # Call LLM
-    response = openai.ChatCompletion.create(
-        model="gpt-4.1",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,       # keep output consistent & deterministic
-        max_tokens=400
-    )
+    return summary.strip()
 
-    return response["choices"][0]["message"]["content"]
+
+# ---------------------------------------------------------------------
+# Optional AI-enhanced analysis
+# ---------------------------------------------------------------------
+def analyze_incident(incident):
+
+    # Always start with deterministic summary
+    base_summary = build_deterministic_summary(incident)
+
+    # If AI is NOT enabled → return deterministic output
+    # (safe for production)
+    USE_AI = False
+
+    if not USE_AI:
+        return base_summary
+
+    # --------------------------------------------------
+    # Optional AI path (if you enable OpenAI later)
+    # --------------------------------------------------
+    try:
+        import openai
+
+        prompt = f"""
+You are a senior Cisco network engineer.
+
+Based on this incident data:
+
+{base_summary}
+
+Refine the root cause analysis and provide:
+- clearer explanation
+- improved troubleshooting steps
+"""
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=400
+        )
+
+        return response["choices"][0]["message"]["content"]
+
+    except Exception as e:
+        return f"{base_summary}\n\n[AI Enhancement Failed: {e}]"
