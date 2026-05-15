@@ -2,100 +2,98 @@ import yaml
 import os
 from syslog_reader import read_logs
 from correlate import load_ap_switch_map, correlate
-#from ai_engine import analyze_incident
+
+# safe import
+try:
+    from ai_engine import analyze_incident
+    AI_AVAILABLE = True
+except ImportError:
+    AI_AVAILABLE = False
+
+# ------------------------------------------------------------
+# Load config safely
+# ------------------------------------------------------------
+def load_config():
+    with open("config.yaml", "r") as f:
+        return yaml.safe_load(f)
 
 
-# ---------------------------------------------------------------------
-# MAIN ORCHESTRATION LOGIC
-# ---------------------------------------------------------------------
-# Steps:
-#   1. Load config
-#   2. Read Kiwi Syslog logs
-#   3. Parse & classify events
-#   4. Detect AP storms + correlate LAN-side faults
-#   5. Ask AI to analyze each incident
-#   6. Store results in output/
-#   7. (Optional) send summary to Zabbix trapper or Teams
-# ---------------------------------------------------------------------
+# ------------------------------------------------------------
+# Main orchestration
+# ------------------------------------------------------------
 def main():
+
+    config = load_config()
+
+    paths = config.get("syslog_paths", [])
+    minutes = config.get("time_window_minutes", 15)
+    ap_map_file = config.get("ap_switch_map", "site_mapping.csv")
 
     # Ensure output directory exists
     os.makedirs("output", exist_ok=True)
 
-    # -----------------------------------------------------------------
-    # Load config
-    # -----------------------------------------------------------------
-    
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
-
-    with open(CONFIG_PATH, "r") as f:
-        cfg = yaml.safe_load(f)
-
-
-    syslog_paths = cfg.get("syslog_paths", [])
-    minutes = cfg.get("time_window_minutes", 180)
-    ap_map_file = cfg.get("ap_switch_map")
-
-    # -----------------------------------------------------------------
-    # Read Syslog
-    # -----------------------------------------------------------------
     print(f"Reading last {minutes} minutes of syslog...")
-    events = read_logs(syslog_paths, minutes)
+
+    # --------------------------------------------------------
+    # Read events
+    # --------------------------------------------------------
+    events = read_logs(paths, minutes)
 
     if not events:
-        print("No syslog events found in the last window.")
+        print("No events found in time window.")
         return
 
-    # -----------------------------------------------------------------
-    # Load AP → Switch mapping
-    # -----------------------------------------------------------------
-    try:
-        ap_map = load_ap_switch_map(ap_map_file)
-    except Exception as e:
-        print(f"Error loading AP switch map: {e}")
-        return
+    # --------------------------------------------------------
+    # Load AP mapping
+    # --------------------------------------------------------
+    ap_map = load_ap_switch_map(ap_map_file)
 
-    # -----------------------------------------------------------------
-    # Detect incidents
-    # -----------------------------------------------------------------
-    incidents = correlate(events, ap_map)
+    # --------------------------------------------------------
+    # Correlate incidents
+    # --------------------------------------------------------
+    incidents = correlate(events, ap_map, window_minutes=20)  # ✅ safer window
 
     if not incidents:
         print("No incidents detected.")
         return
 
-    # -----------------------------------------------------------------
-    # Process each incident with AI
-    # -----------------------------------------------------------------
-    for idx, inc in enumerate(incidents, start=1):
-        print("\n================ INCIDENT DETECTED ================")
-        print(f"AP: {inc['ap']}")
-        print(f"Switch: {inc['switch']}  Port: {inc['port']}  Site: {inc['site']}")
+    # --------------------------------------------------------
+    # Process incidents
+    # --------------------------------------------------------
+    for i, inc in enumerate(incidents, 1):
 
-        # Invoke AI
+        print("\n================ INCIDENT DETECTED ================")
+        print(f"AP: {inc.get('ap')}")
+        print(f"Switch: {inc.get('switch')}  Port: {inc.get('port')}  Site: {inc.get('site')}")
+
+        # AI / deterministic analysis
+
         try:
-            summary = analyze_incident(inc)
+            if AI_AVAILABLE:
+                summary = analyze_incident(inc)
+            else:
+                summary = "[AI disabled] Basic analysis only"
+
         except Exception as e:
             summary = f"[AI Analysis Error] {e}"
 
-        # Print to console
         print("\nAI ANALYSIS:")
         print(summary)
+
         print("==================================================")
 
-        # Save to output file
-        outfile = f"output/incident_{idx}.txt"
+        # Save to file
+
+        outfile = f"output/incident_{i}.txt"
         with open(outfile, "w", encoding="utf-8") as f:
             f.write(summary)
 
-        print(f"Saved incident report → {outfile}")
+        print(f"Saved → {outfile}")
 
     print("\nDone.")
 
-
-# ---------------------------------------------------------------------
-# MAIN ENTRY
-# ---------------------------------------------------------------------
+# ------------------------------------------------------------
+# Entry point (correct)
+# ------------------------------------------------------------
 if __name__ == "__main__":
     main()
